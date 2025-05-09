@@ -124,3 +124,9 @@ outc     <- predict(nc, valc.data, rep = 3).
 outc[,1] <- ifelse(outc[,1] > 0.5, 0, 1)
 tabc     <- table(outc[,1], valc.data$pheno)
 cm_nn    <- confusionMatrix(tabc)
+auc      <- roc(as.factor(valc.data$condition), 
+                outc[,1], 
+                levels    = c("Controls", "Cases"), 
+                auc       = T, 
+                ci        = T, direction = "<")
+
