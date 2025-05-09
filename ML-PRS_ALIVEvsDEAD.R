@@ -21,46 +21,35 @@ setwd("controlvscases/lassosum")
 set.seed(2023)
 
 ##### ALIVE vs DEAD #####
-lasscc           <- read.table("lass_selection.txt", header = T)
-lasscc$IID       <- gsub(pattern = '(.+\\/)|(_.+)', x = lasscc$IID, replacement = '')
-lasscc$pheno     <- as.factor(lasscc$pheno)
-lasscc$condition <- ifelse(lasscc$pheno == 1, 'Controls', 'Cases')
-lasscc$OR        <- exp(lasscc$PRS)
-PRS_datac        <- lasscc
-
-# Split the data into Training: 70%, and Validation: 30%.
-PRS_datac$pheno     <- as.numeric(PRS_datac$pheno)
-PRS_datac$pheno     <- ifelse(PRS_datac$pheno == 2, 1, 0)
-PRS_datac$condition <- ifelse(PRS_datac$condition == 'Controls', 'ALIVE', 'DEAD') 
-
-trainc              <- createDataPartition(PRS_datac$pheno, times = 1, p = 0.7, list = F)
+trainc              <- createDataPartition(PRS_datac$pheno, 
+                                           times = 1, 
+                                           p     = 0.7, 
+                                           list  = F)
 trainc.data         <- PRS_datac[trainc,]
 trainc.data$pheno   <- as.factor(trainc.data$pheno)
 valc.data           <- PRS_datac[-trainc,]
 valc.data$pheno     <- as.factor(valc.data$pheno)
 
-# 10 fold Cross-validation step with multi class summary to improve the model"s accuracy.
+# 10 fold Cross-validation with multi class summary to improve the model"s accuracy.
 ctrl  <- trainControl(method          = "cv", 
                       number          = 10, 
                       savePredictions = T, 
                       summaryFunction = twoClassSummary, 
                       classProbs      = T) 
 
-# Set all methods available in the caret package.
-mlmethods <- c("glm", "lda", "qda", 
-               "knn", "rpart", "rf", 
-               "gbm", "nnet", "svmLinear", 
-               "svmRadial", "xgbLinear")
+# Set the methods available in the caret package.
+mlmethods <- c("glm", "lda", "qda", "knn", 
+               "rpart", "rf", "gbm", "nnet", 
+               "svmLinear", "svmRadial")
 
 # Train the model with the selected methods.
-# Square root of the number of observations (nrow(PRS_data)) determined the number of Ks to use.
 fit_modelc <- list()
 predc      <- list()
 
 
 for(i in 1:length(mlmethods)){
   tryCatch({
-    fit_modelc[[i]] <- train(as.factor(condition) ~ PRS+PSA+Gleason, 
+    fit_modelc[[i]] <- train(as.factor(condition) ~ PRS+PSA+age, 
                              data.      = trainc.data, 
                              method.    = mlmethods[i], 
                              trControl  = ctrl, 
@@ -70,7 +59,7 @@ for(i in 1:length(mlmethods)){
     predc[[i]]      <- confusionMatrix(predict(fit_modelc[[i]], 
                                                newdata = valc.data),
                                        as.factor(valc.data$condition)
-                                       )
+    )
     print(paste0("Prediction done for model ", mlmethods[i]))
   }, error = function(e) {
     predc[[i]] <- e$message
@@ -79,43 +68,40 @@ for(i in 1:length(mlmethods)){
   gc()
 }
 
-# Plot the roc curve with several thresholds using probabilities for the models that worked 
-
-mlmethods  <- c("glm", "lda", "qda", "knn", "rpart", "rf")
-roc_listc  <- list()
-predc_list <- list()
-perfc_list <- list()
-auc_listc  <- list()
+# Predict aggressive cancer on the test data and calculate the AUC for each model.
+predc_roc <- list()
+roc_lda  <- list()
 
 for(id in 1:length(mlmethods)){
-  roc_listc[[id]]  <- predict(fit_modelc[[id]], 
-                              newdata = valc.data, 
-                              type    = "prob")
-  predc_list[[id]] <- prediction(roc_listc[[id]][,2], 
-                                 valc.data$condition, 
-                                 label.ordering = c("ALIVE", "DEAD")
-                                 )
-  perfc_list[[id]] <- performance(predc_list[[id]], 
-                                  measure   = "tpr", 
-                                  x.measure = "fpr")
-  auc_listc[[id]]  <- performance(predc_list[[id]], 
-                                  measure = "auc")@y.values
+  predc_roc[[id]] <- predict(fit_modelc[[id]], newdata = valc.data, type = "raw")
+  predc_roc[[id]] <- ifelse(predc_roc[[id]] == "Controls", 0, 1)
+  roc_lda[[id]]  <- roc(as.factor(valc.data$condition), 
+                       predc_roc[[id]], 
+                       levels    = c("Controls", "Cases"), 
+                       auc       = T, 
+                       ci        = T, 
+                       direction = "<")
 }
 
-plot(perfc_list[[1]], main = "Indolent vs Aggressive", col = "blue", lwd = 2)
-plot(perfc_list[[2]], col = "red", lwd = 2, add = T)
-plot(perfc_list[[3]], col = "black", lwd = 2, add = T)
-plot(perfc_list[[4]], col = "magenta", lwd = 2, add = T)
-plot(perfc_list[[5]], col = "green", lwd = 2, add = T)
-plot(perfc_list[[6]], col = "brown", lwd = 2, add = T)
-abline(a = 0, b = 1, lty = 2, lwd = 2, col = "gray")
-legend("bottomright", legend = paste(mlmethods,"-", paste0("AUC = ", 
-                                                           round(unlist(auc_listc), 3))
-                                     ), 
-       col = c("blue", "red", "black", "magenta", "green", "brown"), 
-       lty = 1)
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
+comparisons <- data.frame(Models   = mlmethods,
+                          se       = rep(NA, length(mlmethods)), 
+                          sp       = rep(NA, length(mlmethods)), 
+                          accuracy = rep(NA, length(mlmethods)), 
+                          kappa    = rep(NA, length(mlmethods)),
+                          auc      = rep(NA, length(mlmethods)))
+
+for(id in 1:length(mlmethods)){
+  comparisons$se[id]       <- predc[[id]]$byClass[1]
+  comparisons$sp[id]       <- predc[[id]]$byClass[2]
+  comparisons$accuracy[id] <- predc[[id]]$overall[1]
+  comparisons$auc[id]      <- roc_lda[[1]]$auc
+  comparisons$kappa[id]    <- predc[[id]]$overall[2]
+}
 
 
+set.seed(120)
 ## Neural network ##
 
 # Neural network method with 70% training and 30% validation split.
