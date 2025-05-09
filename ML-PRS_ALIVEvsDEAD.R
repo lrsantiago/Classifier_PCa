@@ -102,31 +102,61 @@ for(id in 1:length(mlmethods)){
 
 
 set.seed(120)
+
 ## Neural network ##
-
 # Neural network method with 70% training and 30% validation split.
-nc <- neuralnet(pheno ~ PRS+PSA+age,
-                 data          = trainc.data,
-                 hidden        = 4,
-                 algorithm     = "rprop+",
-                 rep           = 3,
-                 err.fct       = "ce",
-                 linear.output = F,
-                 stepmax       = 1500000)
-
-# Select the best rep value based on the lowest error rate.
-for (id in 1:10) {
-  plot(n, rep = id)
+nc <- list()
+for(i in 1:5){
+    nc[[i]] <- neuralnet(pheno ~ PRS+PSA+age,
+                        data          = trainc.data,
+                        hidden        = i,
+                        algorithm     = "rprop+",
+                        rep           = 5,
+                        err.fct       = "ce",
+                        linear.output = F,
+                        stepmax       = 1500000)
 }
 
-# Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
-outc     <- predict(nc, valc.data, rep = 3).
-outc[,1] <- ifelse(outc[,1] > 0.5, 0, 1)
-tabc     <- table(outc[,1], valc.data$pheno)
-cm_nn    <- confusionMatrix(tabc)
-auc      <- roc(as.factor(valc.data$condition), 
-                outc[,1], 
-                levels    = c("Controls", "Cases"), 
-                auc       = T, 
-                ci        = T, direction = "<")
+# Select the best rep value based on the lowest error rate.
+for (id in 1:5) {
+  for (i in 1:5) {
+    plot(nc[[id]], rep = i)
+  }
 
+}
+
+reps <- c(4,1,5,5,5)
+
+# Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
+outc  <- list()
+tabc  <- list()
+cm_nn <- list()
+auc   <- list()
+
+for(id in 1:5){
+    outc[[id]]     <- predict(nc[[id]], valc.data, rep = reps[id])
+    outc[[id]][,1] <- ifelse(outc[[id]][,1] > 0.5, 0, 1)
+    tabc[[id]]     <- table(outc[[id]][,1], valc.data$pheno)
+    cm_nn[[id]]    <- confusionMatrix(tabc[[id]])
+    auc[[id]]      <- roc(as.factor(valc.data$condition),
+                    outc[[id]][,1],
+                    levels    = c("Controls", "Cases"),
+                    auc       = T,
+                    ci        = T, direction = "<")
+}
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
+comparisons_nc <- data.frame(Models = paste0("ANN-", 1:5, " hidden layer"),
+                          se        = rep(NA, length(reps)),
+                          sp        = rep(NA, length(reps)),
+                          accuracy  = rep(NA, length(reps)),
+                          kappa     = rep(NA, length(reps)),
+                          auc       = rep(NA, length(reps)))
+
+for(id in 1:5){
+  comparisons_nc$se[id]       <- cm_nn[[id]]$byClass[1]
+  comparisons_nc$sp[id]       <- cm_nn[[id]]$byClass[2]
+  comparisons_nc$accuracy[id] <- cm_nn[[id]]$overall[1]
+  comparisons_nc$auc[id]      <- auc[[id]]$auc
+  comparisons_nc$kappa[id]    <- cm_nn[[id]]$overall[2]
+}
