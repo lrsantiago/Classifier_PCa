@@ -31,7 +31,7 @@ PRS_datac           <- lasscc
 PRS_datac$pheno     <- as.numeric(PRS_datac$pheno)
 PRS_datac$pheno     <- ifelse(PRS_datac$pheno == 2, 1, 0)
 PRS_datac$condition <- ifelse(PRS_datac$condition == "Controls", "ALIVE", "DEAD")
-
+PRS_datac$CAPRA     <- master$CAPRA[match(PRS_datac$IID, master$LABNO)]
 
 set.seed(2023)
 # Split the data into Training: 70%, and Validation: 30%.
@@ -56,7 +56,7 @@ mlmethods <- c("glm", "lda", "qda", "knn",
                "rpart", "rf", "gbm", "nnet",
                "svmLinear", "svmRadial")
 
-# Train the model with the selected methods.
+# Train the model with the selected methods with PRS + PSA + age.
 fit_modelc <- list()
 predc      <- list()
 
@@ -64,12 +64,12 @@ predc      <- list()
 for(i in 1:length(mlmethods)){
   tryCatch({
     fit_modelc[[i]] <- train(as.factor(condition) ~ PRS+PSA+age,
-                             data.      = trainc.data,
-                             method.    = mlmethods[i],
+                             data       = trainc.data,
+                             method     = mlmethods[i],
                              trControl  = ctrl,
                              preProcess = c("center","scale"),
                              tuneLength = 20,
-                             metric.    = "Accuracy")
+                             metric     = "Accuracy")
     predc[[i]]      <- confusionMatrix(predict(fit_modelc[[i]],
                                                newdata = valc.data),
                                        as.factor(valc.data$condition)
@@ -88,10 +88,10 @@ roc_lda  <- list()
 
 for(id in 1:length(mlmethods)){
   predc_roc[[id]] <- predict(fit_modelc[[id]], newdata = valc.data, type = "raw")
-  predc_roc[[id]] <- ifelse(predc_roc[[id]] == "Controls", 0, 1)
+  predc_roc[[id]] <- ifelse(predc_roc[[id]] == "ALIVE", 0, 1)
   roc_lda[[id]]  <- roc(as.factor(valc.data$condition),
                        predc_roc[[id]],
-                       levels    = c("Controls", "Cases"),
+                       levels    = c("ALIVE", "DEAD"),
                        auc       = T,
                        ci        = T,
                        direction = "<")
@@ -113,6 +113,67 @@ for(id in 1:length(mlmethods)){
   comparisons$auc[id]      <- roc_lda[[1]]$auc
   comparisons$kappa[id]    <- predc[[id]]$overall[2]
 }
+
+
+
+# Train the model with the selected methods with PRS + PSA + Gleason.
+fit_modelcg <- list()
+predcg      <- list()
+
+
+for(i in 1:length(mlmethods)){
+  tryCatch({
+    fit_modelcg[[i]] <- train(as.factor(condition) ~ PRS+PSA+age,
+                             data       = trainc.data,
+                             method     = mlmethods[i],
+                             trControl  = ctrl,
+                             preProcess = c("center","scale"),
+                             tuneLength = 20,
+                             metric     = "Accuracy")
+    predcg[[i]]      <- confusionMatrix(predict(fit_modelc[[i]],
+                                               newdata = valc.data),
+                                       as.factor(valc.data$condition)
+    )
+    print(paste0("Prediction done for model ", mlmethods[i]))
+  }, error = function(e) {
+    predcg[[i]] <- e$message
+    print(paste0("Error for model ", mlmethods[i]))
+  })
+  gc()
+}
+
+# Predict aggressive cancer on the test data and calculate the AUC for each model.
+predcg_roc <- list()
+rocg_lda  <- list()
+
+for(id in 1:length(mlmethods)){
+  predcg_roc[[id]] <- predict(fit_modelcg[[id]], newdata = valc.data, type = "raw")
+  predcg_roc[[id]] <- ifelse(predcg_roc[[id]] == "ALIVE", 0, 1)
+  rocg_lda[[id]]  <- roc(as.factor(valc.data$condition),
+                       predc_roc[[id]],
+                       levels    = c("ALIVE", "DEAD"),
+                       auc       = T,
+                       ci        = T,
+                       direction = "<")
+}
+
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
+comparisons_cg <- data.frame(Models   = mlmethods,
+                          se       = rep(NA, length(mlmethods)),
+                          sp       = rep(NA, length(mlmethods)),
+                          accuracy = rep(NA, length(mlmethods)),
+                          kappa    = rep(NA, length(mlmethods)),
+                          auc      = rep(NA, length(mlmethods)))
+
+for(id in 1:length(mlmethods)){
+  comparisons_cg$se[id]       <- predc[[id]]$byClass[1]
+  comparisons_cg$sp[id]       <- predc[[id]]$byClass[2]
+  comparisons_cg$accuracy[id] <- predc[[id]]$overall[1]
+  comparisons_cg$auc[id]      <- roc_lda[[1]]$auc
+  comparisons_cg$kappa[id]    <- predc[[id]]$overall[2]
+}
+
 
 
 ## Neural network ##
@@ -144,11 +205,10 @@ for(i in 1:3){
 }
 
 # Select the best rep value based on the lowest error rate.
-for (id in 1:3) {
-  for (i in 1:3) {
-    plot(nc[[id]], rep = i)
-  }
-
+for(i in 1:5) {
+png(file = sprintf("hl%s.png", i))
+plot(nc[[1]], rep = i)
+dev.off()
 }
 
 reps <- c(5,2,2)
@@ -250,3 +310,129 @@ for(id in 1:3){
   comparisons_nc2$auc[id]      <- auc2[[id]]$auc
   comparisons_nc2$kappa[id]    <- cm_nn2[[id]]$overall[2]
 }
+
+
+## Neural network (PRS+PSA+Gleason+CAPRA)##
+
+# Neural network method with 70% training and 30% validation split.
+ncc <- list()
+for(i in 1:3){
+  ncc[[i]] <- tryCatch({neuralnet(pheno ~ PRS+PSA+Gleason+CAPRA,
+                                     data          = trainc.data,
+                                     hidden        = i,
+                                     algorithm     = "rprop+",
+                                     rep           = 5,
+                                     err.fct       = "ce",
+                                     linear.output = F,
+                                     stepmax       = 1500000)},
+                        error = function(e) {
+                          message("length zero: ", e$message)
+                          return(NULL)})
+}
+
+# Select the best rep value based on the lowest error rate.
+for(i in 1:5) {
+png(file = sprintf("PRS-PSA-gleason-capra%s.png", i))
+plot(ncc[[1]], rep = i)
+dev.off()
+}
+
+reps <- c(2,2,3)
+
+# Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
+  outcc  <- list()
+  tabcc  <- list()
+  ccm_nn <- list()
+  aucc   <- list()
+
+  for(id in 1:3){
+    outcc[[id]]     <- predict(ncc[[id]], valc.data, rep = reps[id])
+    outcc[[id]][,1] <- ifelse(outcc[[id]][,1] > 0.5, 0, 1)
+    tabcc[[id]]     <- table(outcc[[id]][,1], valc.data$pheno)
+    ccm_nn[[id]]    <- confusionMatrix(tabcc[[id]])
+    aucc[[id]]      <- roc(as.factor(valc.data$condition),
+                          outc[[id]][,1],
+                          levels    = c("ALIVE", "DEAD"),
+                          auc       = T,
+                          ci        = T, direction = "<")
+  }
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
+  comparisons_ncc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
+                               se        = rep(NA, length(reps)),
+                               sp        = rep(NA, length(reps)),
+                               accuracy  = rep(NA, length(reps)),
+                               kappa     = rep(NA, length(reps)),
+                               auc       = rep(NA, length(reps)))
+
+  for(id in 1:3){
+    comparisons_ncc$se[id]       <- ccm_nn[[id]]$byClass[1]
+    comparisons_ncc$sp[id]       <- ccm_nn[[id]]$byClass[2]
+    comparisons_ncc$accuracy[id] <- ccm_nn[[id]]$overall[1]
+    comparisons_ncc$auc[id]      <- aucc[[id]]$auc
+    comparisons_ncc$kappa[id]    <- ccm_nn[[id]]$overall[2]
+  }
+
+
+  ## Neural network (CAPRA)##
+
+  # Split the data into Training: 70%, and Validation: 30%.
+
+  # Neural network method with 70% training and 30% validation split.
+  ncapra <- list()
+  for(i in 1:3){
+    ncapra[[i]] <- tryCatch({neuralnet(pheno ~ CAPRA,
+                                       data          = trainc.data,
+                                       hidden        = i,
+                                       algorithm     = "rprop+",
+                                       rep           = 5,
+                                       err.fct       = "ce",
+                                       linear.output = F,
+                                       stepmax       = 1500000)},
+                          error = function(e) {
+                            message("length zero: ", e$message)
+                            return(NULL)})
+  }
+
+  # Select the best rep value based on the lowest error rate.
+  for(i in 1:5) {
+  png(file = sprintf("capra%s.png", i))
+  plot(ncapra[[1]], rep = i)
+  dev.off()
+  }
+
+  reps <- c(3,3,2)
+
+  # Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
+    outcapra  <- list()
+    tabcapra  <- list()
+    capram_nn <- list()
+    aucapra   <- list()
+
+    for(id in 1:3){
+      outcapra[[id]]     <- predict(ncapra[[id]], valc.data, rep = reps[id])
+      outcapra[[id]][,1] <- ifelse(outcapra[[id]][,1] > 0.5, 0, 1)
+      tabcapra[[id]]     <- table(outcapra[[id]][,1], valc.data$pheno)
+      capram_nn[[id]]    <- confusionMatrix(tabcapra[[id]])
+      aucapra[[id]]      <- roc(as.factor(valc.data$condition),
+                            outc[[id]][,1],
+                            levels    = c("ALIVE", "DEAD"),
+                            auc       = T,
+                            ci        = T, direction = "<")
+    }
+
+  # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
+    comparisons_ncapra <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
+                                 se        = rep(NA, length(reps)),
+                                 sp        = rep(NA, length(reps)),
+                                 accuracy  = rep(NA, length(reps)),
+                                 kappa     = rep(NA, length(reps)),
+                                 auc       = rep(NA, length(reps)))
+
+    for(id in 1:3){
+      comparisons_ncapra$se[id]       <- capram_nn[[id]]$byClass[1]
+      comparisons_ncapra$sp[id]       <- capram_nn[[id]]$byClass[2]
+      comparisons_ncapra$accuracy[id] <- capram_nn[[id]]$overall[1]
+      comparisons_ncapra$auc[id]      <- aucapra[[id]]$auc
+      comparisons_ncapra$kappa[id]    <- capram_nn[[id]]$overall[2]
+    }
