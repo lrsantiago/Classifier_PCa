@@ -110,7 +110,7 @@ for(id in 1:length(mlmethods)){
   comparisons$se[id]       <- predc[[id]]$byClass[1]
   comparisons$sp[id]       <- predc[[id]]$byClass[2]
   comparisons$accuracy[id] <- predc[[id]]$overall[1]
-  comparisons$auc[id]      <- roc_lda[[1]]$auc
+  comparisons$auc[id]      <- roc_lda[[id]]$auc
   comparisons$kappa[id]    <- predc[[id]]$overall[2]
 }
 
@@ -123,7 +123,7 @@ predcg      <- list()
 
 for(i in 1:length(mlmethods)){
   tryCatch({
-    fit_modelcg[[i]] <- train(as.factor(condition) ~ PRS+PSA+age,
+    fit_modelcg[[i]] <- train(as.factor(condition) ~ PRS+PSA+Gleason,
                              data       = trainc.data,
                              method     = mlmethods[i],
                              trControl  = ctrl,
@@ -150,7 +150,7 @@ for(id in 1:length(mlmethods)){
   predcg_roc[[id]] <- predict(fit_modelcg[[id]], newdata = valc.data, type = "raw")
   predcg_roc[[id]] <- ifelse(predcg_roc[[id]] == "ALIVE", 0, 1)
   rocg_lda[[id]]  <- roc(as.factor(valc.data$condition),
-                       predc_roc[[id]],
+                       predcg_roc[[id]],
                        levels    = c("ALIVE", "DEAD"),
                        auc       = T,
                        ci        = T,
@@ -167,18 +167,18 @@ comparisons_cg <- data.frame(Models   = mlmethods,
                           auc      = rep(NA, length(mlmethods)))
 
 for(id in 1:length(mlmethods)){
-  comparisons_cg$se[id]       <- predc[[id]]$byClass[1]
-  comparisons_cg$sp[id]       <- predc[[id]]$byClass[2]
-  comparisons_cg$accuracy[id] <- predc[[id]]$overall[1]
-  comparisons_cg$auc[id]      <- roc_lda[[1]]$auc
-  comparisons_cg$kappa[id]    <- predc[[id]]$overall[2]
+  comparisons_cg$se[id]       <- predcg[[id]]$byClass[1]
+  comparisons_cg$sp[id]       <- predcg[[id]]$byClass[2]
+  comparisons_cg$accuracy[id] <- predcg[[id]]$overall[1]
+  comparisons_cg$auc[id]      <- rocg_lda[[id]]$auc
+  comparisons_cg$kappa[id]    <- predcg[[id]]$overall[2]
 }
 
 
 
 ## Neural network ##
 set.seed(123)
-# Split the data into Training: 70%, and Validation: 30%.
+# Split the data into Training: 70%, and Validation: 30% with PRS + PSA + Gleason.
 trainc              <- createDataPartition(PRS_datac$pheno,
                                            times = 1,
                                            p     = 0.7,
