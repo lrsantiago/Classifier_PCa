@@ -1,9 +1,9 @@
 #!/usr/bin/env Rscript
-# R version 4.0.0
+# R version 4.1.0
 ## Classifier using PSA and age to predict prostate cancer aggressiveness.
 
-libraries <- c("caret", "MLeval", "mlbench", 
-               "ROCR", "pROC", "unix")
+libraries <- c("caret", "MLeval", "mlbench",
+               "ROCR", "pROC", "unix", "neuralnet")
 
 for (lib in libraries) {
   if (require(package = lib, character.only = TRUE)) {
@@ -18,18 +18,89 @@ for (lib in libraries) {
 }
 
 # Prepare the data.
-data_all               <- read.csv("TAPG_TURP_DATA.csv")
-data_all$pheno         <- as.factor(ifelse(data_all$pheno == 1, 0, 1))
-data_all               <- subset(data_all, !is.na(CAPRA))
-surv_data              <- data_all[, c("patientid", "Status_2011", "Age", 
-                                       "survival2011", "PSA", "LABNO", 
-                                       "Gleason", "pheno", "CAPRA")]
+data_all             <- read.csv("TAPG_TURP_DATA.csv")
+data_all             <- data_all[-1]
+data_all$pheno       <- as.factor(ifelse(data_all$Status_2011 == 'ALIVE', 0, 1))
+data_all             <- subset(data_all, !is.na(CAPRA))
+surv_data            <- data_all[, c("patientid", "Status_2011", "Age",
+                                     "survival2011", "PSA", "LABNO",
+                                     "Gleason", "pheno", "CAPRA")]
+
 surv_data$Age          <- as.integer(surv_data$Age)
 surv_data$survival2011 <- as.integer(surv_data$survival2011)
+surv_data$pheno        <- as.numeric(surv_data$pheno)
+surv_data$pheno        <- ifelse(surv_data$pheno == 2, 1, 0)
 
 # Split the data into Training: 70%, and Validation: 30%.
-surv_data$pheno <- as.numeric(surv_data$pheno)
-surv_data$pheno <- ifelse(surv_data$pheno == 2, 1, 0)
+set.seed(333)
+train            <- createDataPartition(surv_data$pheno, times = 1, p = 0.7, list = F)
+train.data       <- surv_data[train,]
+train.data$pheno <- as.factor(train.data$pheno)
+val.data         <- surv_data[-train,]
+val.data$pheno   <- as.factor(val.data$pheno)
+
+
+# Neural network method with 70% training and 30% validation split.
+nc <- list()
+for(i in 1:3){
+  nc[[i]] <- tryCatch({neuralnet(pheno ~ PSA+Age,
+                                 data          = train.data,
+                                 hidden        = i,
+                                 algorithm     = "rprop+",
+                                 rep           = 5,
+                                 err.fct       = "ce",
+                                 act.fct       = "logistic",
+                                 linear.output = F,
+                                 stepmax       = 1500000)},
+                      error = function(e) {
+                        message("length zero: ", e$message)
+                        return(NULL)})
+}
+
+# Select the best rep value based on the lowest error rate.
+for(i in 1:5) {
+  png(file = sprintf("hl%s.png", i))
+  plot(nc[[1]], rep = i)
+  dev.off()
+}
+
+reps <- c(5,2,2)
+
+# Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
+outc  <- list()
+tabc  <- list()
+cm_nn <- list()
+auc   <- list()
+
+for(id in 1:3){
+  outc[[id]]     <- predict(nc[[id]], val.data, rep = reps[id])
+  outc[[id]][,1] <- ifelse(outc[[id]][,1] > 0.5, 0, 1)
+  tabc[[id]]     <- table(outc[[id]][,1], val.data$pheno)
+  cm_nn[[id]]    <- confusionMatrix(tabc[[id]])
+  auc[[id]]      <- roc(as.factor(val.data$Status_2011),
+                        outc[[id]][,1],
+                        levels    = c("ALIVE", "DEAD"),
+                        auc       = T,
+                        ci        = T, direction = "<")
+}
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
+comparisons_nc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
+                             se        = rep(NA, length(reps)),
+                             sp        = rep(NA, length(reps)),
+                             accuracy  = rep(NA, length(reps)),
+                             kappa     = rep(NA, length(reps)),
+                             auc       = rep(NA, length(reps)))
+
+for(id in 1:3){
+  comparisons_nc$se[id]       <- cm_nn[[id]]$byClass[1]
+  comparisons_nc$sp[id]       <- cm_nn[[id]]$byClass[2]
+  comparisons_nc$accuracy[id] <- cm_nn[[id]]$overall[1]
+  comparisons_nc$auc[id]      <- auc[[id]]$auc
+  comparisons_nc$kappa[id]    <- cm_nn[[id]]$overall[2]
+}
+
+
 
 set.seed(110)
 train            <- createDataPartition(surv_data$pheno, times = 1, p = 0.7, list = F)
@@ -39,11 +110,11 @@ val.data         <- surv_data[-train,]
 val.data$pheno   <- as.factor(val.data$pheno)
 
 # 10 fold cross-validation with multi class summary to improve the model's accuracy.
-ctrl  <- trainControl(method          = "cv", 
-                      number          = 10, 
-                      savePredictions = T, 
-                      summaryFunction = twoClassSummary, 
-                      classProbs      = T) 
+ctrl  <- trainControl(method          = "cv",
+                      number          = 10,
+                      savePredictions = T,
+                      summaryFunction = twoClassSummary,
+                      classProbs      = T)
 
 # Select six methods available in the caret package
 mlmethods <- c("glm", "lda", "qda", "knn", "rpart", "rf")
@@ -56,15 +127,15 @@ pred      <- list()
 
 for(i in 1:length(mlmethods)){
   tryCatch({
-    fit_model[[i]] <- train(as.factor(Status_2011) ~ PSA + age, 
-                            data       = train.data, 
-                            method.    = mlmethods[i], 
-                            trCont.rol = ctrl, 
-                            preProcess = c("center","scale"), 
-                            tuneLength = 50, 
+    fit_model[[i]] <- train(as.factor(Status_2011) ~ PSA + Age,
+                            data       = train.data,
+                            method.    = mlmethods[i],
+                            trCont.rol = ctrl,
+                            preProcess = c("center","scale"),
+                            tuneLength = 50,
                             metric.    = "Spec")
-    pred[[i]]      <- confusionMatrix(predict(fit_model[[i]], 
-                                              newdata = val.data), 
+    pred[[i]]      <- confusionMatrix(predict(fit_model[[i]],
+                                              newdata = val.data),
                                       as.factor(val.data$Status_2011)
                                       )
     print(paste0("Prediction done for model", mlmethods[i]))
@@ -77,40 +148,37 @@ for(i in 1:length(mlmethods)){
 
 # Check the performance of the models.
 results <- resamples(fit_model)
-dotplot(results) 
+dotplot(results)
 
-# Plot the roc curve with several thresholds using probabilities.
-roc_list  <- list()
-pred_list <- list()
-perf_list <- list()
-auc_list  <- list()
+# Predict aggressive cancer on the test data and calculate the AUC for each model.
+predcg_roc <- list()
+rocg_lda  <- list()
 
 for(id in 1:length(mlmethods)){
-  roc_list[[id]]  <- predict(fit_model[[id]], 
-                             newdata = val.data, 
-                             type    = "prob")
-  pred_list[[id]] <- prediction(roc_list[[id]][,1], 
-                                val.data$Status_2011, 
-                                label.ordering = c("DEAD", "ALIVE")
-                                )
-  perf_list[[id]] <- performance(pred_list[[id]], 
-                                 measure   = "tpr", 
-                                 x.measure = "fpr")
-  auc_list[[id]]  <- performance(pred_list[[id]], 
-                                 measure = "auc")@y.values
+  predcg_roc[[id]] <- predict(fit_model[[id]], newdata = val.data, type = "raw")
+  predcg_roc[[id]] <- ifelse(predcg_roc[[id]] == "ALIVE", 0, 1)
+  rocg_lda[[id]]  <- roc(as.factor(val.data$Status_2011),
+                         predcg_roc[[id]],
+                         levels    = c("ALIVE", "DEAD"),
+                         auc       = T,
+                         ci        = T,
+                         direction = "<")
 }
 
-plot(perf_list[[1]], main = "ROC Curves", col = "blue", lwd = 2)
-plot(perf_list[[2]], col = "red", lwd = 2, add = T)
-plot(perf_list[[3]], col = "orange", lwd = 2, add = T)
-plot(perf_list[[4]], col = "black", lwd = 2, add = T)
-plot(perf_list[[5]], col = "green", lwd = 2, add = T)
-plot(perf_list[[6]], col = "brown", lwd = 2, add = T)
-abline(a = 0, b = 1, lty = 2, lwd = 2, col = "gray")
-legend("bottomright", legend = paste(mlmethods,"-", 
-                                     paste0("AUC = ", 
-                                            round(unlist(auc_list), 3))), 
-       col = c("blue", "red", "orange", "black", "green", "brown"), 
-       lty = 1)
 
-# qda had the best performance.
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
+comparisons_cg <- data.frame(Models   = mlmethods,
+                             se       = rep(NA, length(mlmethods)),
+                             sp       = rep(NA, length(mlmethods)),
+                             accuracy = rep(NA, length(mlmethods)),
+                             kappa    = rep(NA, length(mlmethods)),
+                             auc      = rep(NA, length(mlmethods)))
+
+for(id in 1:length(mlmethods)){
+  comparisons_cg$se[id]       <- pred[[id]]$byClass[1]
+  comparisons_cg$sp[id]       <- pred[[id]]$byClass[2]
+  comparisons_cg$accuracy[id] <- pred[[id]]$overall[1]
+  comparisons_cg$auc[id]      <- rocg_lda[[id]]$auc
+  comparisons_cg$kappa[id]    <- pred[[id]]$overall[2]
+}
+
