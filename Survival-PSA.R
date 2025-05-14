@@ -16,7 +16,7 @@ for (lib in libraries) {
   }
 }
 
-
+setwd("controlvscases")
 
 # Prepare the data.
 data_all             <- read.csv("TAPG_TURP_DATA.csv")
