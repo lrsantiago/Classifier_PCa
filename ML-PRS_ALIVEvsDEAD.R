@@ -100,9 +100,9 @@ for(id in 1:length(mlmethods)){
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
 comparisons <- data.frame(Models   = mlmethods,
+                          accuracy = rep(NA, length(mlmethods)),
                           se       = rep(NA, length(mlmethods)),
                           sp       = rep(NA, length(mlmethods)),
-                          accuracy = rep(NA, length(mlmethods)),
                           kappa    = rep(NA, length(mlmethods)),
                           auc      = rep(NA, length(mlmethods)))
 
@@ -160,11 +160,11 @@ for(id in 1:length(mlmethods)){
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
 comparisons_cg <- data.frame(Models   = mlmethods,
-                          se       = rep(NA, length(mlmethods)),
-                          sp       = rep(NA, length(mlmethods)),
-                          accuracy = rep(NA, length(mlmethods)),
-                          kappa    = rep(NA, length(mlmethods)),
-                          auc      = rep(NA, length(mlmethods)))
+                             accuracy = rep(NA, length(mlmethods)),
+                             se       = rep(NA, length(mlmethods)),
+                             sp       = rep(NA, length(mlmethods)),
+                             kappa    = rep(NA, length(mlmethods)),
+                             auc      = rep(NA, length(mlmethods)))
 
 for(id in 1:length(mlmethods)){
   comparisons_cg$se[id]       <- predcg[[id]]$byClass[1]
@@ -233,12 +233,12 @@ reps <- c(5,2,2)
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
   comparisons_nc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
+                               accuracy  = rep(NA, length(reps)),
                                se        = rep(NA, length(reps)),
                                sp        = rep(NA, length(reps)),
-                               accuracy  = rep(NA, length(reps)),
                                kappa     = rep(NA, length(reps)),
                                auc       = rep(NA, length(reps)))
-
+  
   for(id in 1:3){
     comparisons_nc$se[id]       <- cm_nn[[id]]$byClass[1]
     comparisons_nc$sp[id]       <- cm_nn[[id]]$byClass[2]
@@ -297,11 +297,11 @@ for(id in 1:3){
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
 comparisons_nc2 <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
-                             se        = rep(NA, length(reps)),
-                             sp        = rep(NA, length(reps)),
-                             accuracy  = rep(NA, length(reps)),
-                             kappa     = rep(NA, length(reps)),
-                             auc       = rep(NA, length(reps)))
+                              accuracy  = rep(NA, length(reps)),
+                              se        = rep(NA, length(reps)),
+                              sp        = rep(NA, length(reps)),
+                              kappa     = rep(NA, length(reps)),
+                              auc       = rep(NA, length(reps)))
 
 for(id in 1:3){
   comparisons_nc2$se[id]       <- cm_nn2[[id]]$byClass[1]
@@ -359,12 +359,12 @@ reps <- c(2,2,3)
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
   comparisons_ncc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
-                               se        = rep(NA, length(reps)),
-                               sp        = rep(NA, length(reps)),
-                               accuracy  = rep(NA, length(reps)),
-                               kappa     = rep(NA, length(reps)),
-                               auc       = rep(NA, length(reps)))
-
+                                accuracy  = rep(NA, length(reps)),
+                                se        = rep(NA, length(reps)),
+                                sp        = rep(NA, length(reps)),
+                                kappa     = rep(NA, length(reps)),
+                                auc       = rep(NA, length(reps)))
+  
   for(id in 1:3){
     comparisons_ncc$se[id]       <- ccm_nn[[id]]$byClass[1]
     comparisons_ncc$sp[id]       <- ccm_nn[[id]]$byClass[2]
@@ -423,11 +423,11 @@ reps <- c(2,2,3)
 
   # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
     comparisons_ncapra <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
-                                 se        = rep(NA, length(reps)),
-                                 sp        = rep(NA, length(reps)),
-                                 accuracy  = rep(NA, length(reps)),
-                                 kappa     = rep(NA, length(reps)),
-                                 auc       = rep(NA, length(reps)))
+                                     accuracy  = rep(NA, length(reps)),
+                                     se        = rep(NA, length(reps)),
+                                     sp        = rep(NA, length(reps)),
+                                     kappa     = rep(NA, length(reps)),
+                                     auc       = rep(NA, length(reps)))
 
     for(id in 1:3){
       comparisons_ncapra$se[id]       <- capram_nn[[id]]$byClass[1]
@@ -436,3 +436,5 @@ reps <- c(2,2,3)
       comparisons_ncapra$auc[id]      <- aucapra[[id]]$auc
       comparisons_ncapra$kappa[id]    <- capram_nn[[id]]$overall[2]
     }
+
+q(save = "no")
