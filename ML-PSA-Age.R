@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# R version 4.1.0
+# R version 4.0.0
 ## Classifier using PSA and age to predict prostate cancer aggressiveness.
 
 libraries <- c("caret", "MLeval", "mlbench",
@@ -57,6 +57,7 @@ for(i in 1:3){
                         return(NULL)})
 }
 
+
 # Select the best rep value based on the lowest error rate.
 for(i in 1:5) {
   png(file = sprintf("hl%s.png", i))
@@ -64,7 +65,7 @@ for(i in 1:5) {
   dev.off()
 }
 
-reps <- c(5,2,2)
+reps <- c(2,2,1)
 
 # Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
 outc  <- list()
@@ -75,7 +76,8 @@ auc   <- list()
 for(id in 1:3){
   outc[[id]]     <- predict(nc[[id]], val.data, rep = reps[id])
   outc[[id]][,1] <- ifelse(outc[[id]][,1] > 0.5, 0, 1)
-  tabc[[id]]     <- table(outc[[id]][,1], val.data$pheno)
+  u              <- union(outc[[id]][,1], val.data$pheno)
+  tabc[[id]]     <- table(factor(outc[[id]][,1], u), factor(val.data$pheno, u))
   cm_nn[[id]]    <- confusionMatrix(tabc[[id]])
   auc[[id]]      <- roc(as.factor(val.data$Status_2011),
                         outc[[id]][,1],
@@ -84,8 +86,9 @@ for(id in 1:3){
                         ci        = T, direction = "<")
 }
 
+
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
-comparisons_nc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layer"),
+comparisons_nc <- data.frame(Models = paste0("ANN-", 1:3, " hidden layers"),
                              se        = rep(NA, length(reps)),
                              sp        = rep(NA, length(reps)),
                              accuracy  = rep(NA, length(reps)),
@@ -100,6 +103,69 @@ for(id in 1:3){
   comparisons_nc$kappa[id]    <- cm_nn[[id]]$overall[2]
 }
 
+
+# Neural network method with 70% training and 30% validation split with PSA + Gleason.
+nc2 <- list()
+for(i in 1:3){
+  nc2[[i]] <- tryCatch({neuralnet(pheno ~ PSA+Gleason,
+                                  data          = train.data,
+                                  hidden        = i,
+                                  algorithm     = "rprop+",
+                                  rep           = 5,
+                                  err.fct       = "ce",
+                                  act.fct       = "logistic",
+                                  linear.output = F,
+                                  stepmax       = 1500000)},
+                       error = func2tion(e) {
+                         message("length zero: ", e$message)
+                         return(NULL)})
+}
+
+
+# Select the best rep value based on the lowest error rate.
+for(i in 1:5) {
+  png(file = sprintf("hl%s.png", i))
+  plot(nc2[[1]], rep = i)
+  dev.off()
+}
+
+reps <- c(2,2,1)
+
+# Compute the predicted values for ALIVE (0) and DEAD (1) on the validation data.
+outc2  <- list()
+tabc2  <- list()
+c2m_nn <- list()
+auc2   <- list()
+
+for(id in 1:3){
+  outc2[[id]]     <- predict(nc2[[id]], val.data, rep = reps[id])
+  outc2[[id]][,1] <- ifelse(outc2[[id]][,1] > 0.5, 0, 1)
+  u              <- union(outc2[[id]][,1], val.data$pheno)
+  tabc2[[id]]     <- table(factor(outc2[[id]][,1], u), factor(val.data$pheno, u))
+  c2m_nn[[id]]    <- confusionMatrix(tabc2[[id]])
+  auc2[[id]]      <- roc(as.factor(val.data$Status_2011),
+                         outc2[[id]][,1],
+                         levels    = c("ALIVE", "DEAD"),
+                         auc       = T,
+                         ci        = T, direction = "<")
+}
+
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the model.
+comparisons_nc2 <- data.frame(Models = paste0("ANN-", 1:3, " hidden layers"),
+                              se        = rep(NA, length(reps)),
+                              sp        = rep(NA, length(reps)),
+                              accuracy  = rep(NA, length(reps)),
+                              kappa     = rep(NA, length(reps)),
+                              auc       = rep(NA, length(reps)))
+
+for(id in 1:3){
+  comparisons_nc2$se[id]       <- c2m_nn[[id]]$byClass[1]
+  comparisons_nc2$sp[id]       <- c2m_nn[[id]]$byClass[2]
+  comparisons_nc2$accuracy[id] <- c2m_nn[[id]]$overall[1]
+  comparisons_nc2$auc[id]      <- auc2[[id]]$auc
+  comparisons_nc2$kappa[id]    <- c2m_nn[[id]]$overall[2]
+}
 
 
 set.seed(110)
@@ -117,10 +183,11 @@ ctrl  <- trainControl(method          = "cv",
                       classProbs      = T)
 
 # Select six methods available in the caret package
-mlmethods <- c("glm", "lda", "qda", "knn", "rpart", "rf")
 
-# Train the model with the selected methods.
-# Based on the  square root of the number of observations (nrow(data_all)), ks was set to 50.
+mlmethods <- c("glm", "lda", "qda", "knn", "rpart", "rf",
+               "gbm", "nnet", "svmLinear", "svmRadial")
+
+# Train the model with the selected methods using PSA + Age.
 fit_model <- list()
 pred      <- list()
 
@@ -168,9 +235,9 @@ for(id in 1:length(mlmethods)){
 
 # Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
 comparisons_cg <- data.frame(Models   = mlmethods,
+                             accuracy = rep(NA, length(mlmethods)),
                              se       = rep(NA, length(mlmethods)),
                              sp       = rep(NA, length(mlmethods)),
-                             accuracy = rep(NA, length(mlmethods)),
                              kappa    = rep(NA, length(mlmethods)),
                              auc      = rep(NA, length(mlmethods)))
 
@@ -182,3 +249,67 @@ for(id in 1:length(mlmethods)){
   comparisons_cg$kappa[id]    <- pred[[id]]$overall[2]
 }
 
+
+# Train the model with the selected methods using PSA + Gleason.
+fit_model2 <- list()
+pred2      <- list()
+
+
+for(i in 1:length(mlmethods)){
+  tryCatch({
+    fit_model2[[i]] <- train(as.factor(Status_2011) ~ PSA + Gleason,
+                             data       = train.data,
+                             method.    = mlmethods[i],
+                             trCont.rol = ctrl,
+                             preProcess = c("center","scale"),
+                             tuneLength = 50,
+                             metric.    = "Spec")
+    pred2[[i]]      <- confusionMatrix(predict(fit_model2[[i]],
+                                               newdata = val.data),
+                                       as.factor(val.data$Status_2011)
+    )
+    print(paste0("Prediction done for model", mlmethods[i]))
+  }, error = function(e) {
+    pred2[[i]] <- e$message
+    print(paste0("Error for model ", mlmethods[i]))
+  })
+  gc()
+}
+
+# Check the performance of the models.
+results2 <- resamples(fit_model2)
+dotplot(results2)
+
+# Predict aggressive cancer on the test data and calculate the AUC for each model.
+predcg2_roc <- list()
+rocg2_lda   <- list()
+
+for(id in 1:length(mlmethods)){
+  predcg2_roc[[id]] <- predict(fit_model2[[id]], newdata = val.data, type = "raw")
+  predcg2_roc[[id]] <- ifelse(predcg2_roc[[id]] == "ALIVE", 0, 1)
+  rocg2_lda[[id]]   <- roc(as.factor(val.data$Status_2011),
+                           predcg2_roc[[id]],
+                           levels    = c("ALIVE", "DEAD"),
+                           auc       = T,
+                           ci        = T,
+                           direction = "<")
+}
+
+
+# Get the sensitivity, specificity, accuracy, kappa, and AUC for the models.
+comparisons_cg2 <- data.frame(Models   = mlmethods,
+                              accuracy = rep(NA, length(mlmethods)),
+                              se       = rep(NA, length(mlmethods)),
+                              sp       = rep(NA, length(mlmethods)),
+                              kappa    = rep(NA, length(mlmethods)),
+                              auc      = rep(NA, length(mlmethods)))
+
+for(id in 1:length(mlmethods)){
+  comparisons_cg2$se[id]       <- pred2[[id]]$byClass[1]
+  comparisons_cg2$sp[id]       <- pred2[[id]]$byClass[2]
+  comparisons_cg2$accuracy[id] <- pred2[[id]]$overall[1]
+  comparisons_cg2$auc[id]      <- rocg2_lda[[id]]$auc
+  comparisons_cg2$kappa[id]    <- pred2[[id]]$overall[2]
+}
+
+q(save = "no")
