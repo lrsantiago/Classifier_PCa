@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# R version 4.0.0
+# R version 4.1.0
 ## Survival analysis using PSA and age to predict prostate cancer aggressiveness.
 
 libraries <- c("arm", "survival", "survminer")
@@ -30,6 +30,8 @@ surv_data     <- data_all[, c("patientid", "Status_2011", "Age",
                           "survival2011", "PSA", "LABNO", 
                           "Gleason", "pheno", "CAPRA")]
 
+set.seed(150)
+## Multivariate cox regression model.
 res.cox_all2 <- coxph(Surv(survival2011, as.numeric(pheno)) ~ PSA+CAPRA+Gleason, 
                       data = surv_data)
 multi_cox2   <- summary(res.cox_all2)
