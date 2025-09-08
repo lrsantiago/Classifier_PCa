@@ -115,3 +115,37 @@ for(id in 1:length(mlmethods)){
   comparisons$auc[id]      <- roc_lda[[1]]$auc
   comparisons$kappa[id].   <- pred[[id]]$overall[2]
 }
+
+# Calculate the AUC based on the best model found on the test data.
+model      <- bayesglm(pheno ~ PRS, 
+                         family = binomial(link='logit'), 
+                         data   = data.tst)
+
+predictors <- as.matrix(data.frame('0' = 1 - model$fitted.values, 
+                                     '1' = model$fitted.values))
+
+colnames(predictors) <- c(0, 1)
+prs_predic           <- multiclass.roc(data.tst$pheno, 
+                                         predictors, 
+                                         percent = T)
+
+# Calculate the pseudo R2 and its respective p-value.
+logistic_null     <- model$null.deviance/-2
+logistic_proposed <- model$deviance/-2
+pseudo_r2         <- (logistic_null - logistic_proposed)/logistic_null
+pseudo_r2_pvalue  <- 1 - pchisq(2*(logistic_proposed - logistic_null), 
+                                  df = (length(model$coefficients)-1))
+
+# Find the best cutoff for PRS and the Youden index.
+optimal.cutpoint.Youdenprs   <- optimal.cutpoints(X           = "PRS", 
+                                                  status      = "pheno", 
+                                                  tag.healthy = 0, 
+                                                  methods     = "Youden", 
+                                                  data        = PRS_data, 
+                                                  pop.prev    = NULL, 
+                                                  control     = control.cutpoints(), 
+                                                  ci.fit      = FALSE, 
+                                                  conf.level  = 0.95, 
+                                                  trace       = FALSE)
+
+q(save = "no")
