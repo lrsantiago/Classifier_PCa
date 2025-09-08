@@ -314,4 +314,48 @@ for(id in 1:length(mlmethods)){
   comparisons_cg2$kappa[id]    <- pred2[[id]]$overall[2]
 }
 
+
+# Calculate the AUC based on the best model found on the validation data.
+modelcc      <- bayesglm(pheno ~ PSA+Gleason, 
+                         family = binomial(link='logit'), 
+                         data   = valc.data)
+
+predictorscc <- as.matrix(data.frame('0' = 1 - modelcc$fitted.values, 
+                                     '1' = modelcc$fitted.values))
+
+colnames(predictorscc) <- c(0, 1)
+prs_prediccc           <- multiclass.roc(valc.data$pheno, 
+                                         predictorscc, 
+                                         percent = T)
+
+# Calculate the pseudo R2 and its respective p-value.
+logistic_nullcc     <- modelcc$null.deviance/-2
+logistic_proposedcc <- modelcc$deviance/-2
+pseudo_r2cc         <- (logistic_nullcc - logistic_proposedcc)/logistic_nullcc
+pseudo_r2cc_pvalue  <- 1 - pchisq(2*(logistic_proposedcc - logistic_nullcc), 
+                                  df = (length(modelcc$coefficients)-1))
+
+# Find the best cutoff for PRS and PSA and the Youden index.
+optimal.cutpoint.Youdenpsacc <- optimal.cutpoints(X           = "PSA", 
+                                                  status      = "pheno", 
+                                                  tag.healthy = 0, 
+                                                  methods     = "Youden", 
+                                                  data        = surv_data, 
+                                                  pop.prev    = NULL, 
+                                                  control     = control.cutpoints(), 
+                                                  ci.fit      = FALSE, 
+                                                  conf.level  = 0.95, 
+                                                  trace       = FALSE)
+
+optimal.cutpoint.Youdengleasoncc <- optimal.cutpoints(X           = "Gleason", 
+                                                  status      = "pheno", 
+                                                  tag.healthy = 0, 
+                                                  methods     = "Youden", 
+                                                  data        = surv_data, 
+                                                  pop.prev    = NULL, 
+                                                  control     = control.cutpoints(), 
+                                                  ci.fit      = FALSE, 
+                                                  conf.level  = 0.95, 
+                                                  trace       = FALSE)
+
 q(save = "no")
