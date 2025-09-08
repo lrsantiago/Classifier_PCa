@@ -61,9 +61,6 @@ res.test <- anova(test1, test2, test3, test4, test5, test6,
                   test7, test8, test9, test10, test11, 
                   test12, test13, test14, test15, test = "Chisq")
 
-# Testing the proportional hazard assumption
-PH1b   <- cox.zph(res.cox_all) 
-
 # Survival with cox proportional hazard model with PRS as predictor. 
 res.coxuni       <- coxph(Surv(survival2011, as.numeric(pheno)) ~ PRS, data = surv_data_prs)
 prs_res          <- summary(res.coxuni)
